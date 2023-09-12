@@ -1,0 +1,451 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+%matplotlib inline
+
+import itertools
+import seaborn as sns
+import pandas_profiling
+import statsmodels.formula.api as sm
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from patsy import dmatrices
+
+from sklearn import datasets
+from sklearn.feature_selection import RFE
+import sklearn.metrics as metrics
+from sklearn.svm import SVC
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import chi2, f_classif, mutual_info_classif
+
+train=pd.read_csv('NSL_Dataset/Train.txt',sep=',')
+test=pd.read_csv('NSL_Dataset/Test.txt',sep=',')
+
+
+train.head()
+
+columns=["duration","protocol_type","service","flag","src_bytes","dst_bytes","land",
+"wrong_fragment","urgent","hot","num_failed_logins","logged_in",
+"num_compromised","root_shell","su_attempted","num_root","num_file_creations",
+"num_shells","num_access_files","num_outbound_cmds","is_host_login",
+"is_guest_login","count","srv_count","serror_rate", "srv_serror_rate",
+"rerror_rate","srv_rerror_rate","same_srv_rate", "diff_srv_rate","srv_diff_host_rate","dst_host_count","dst_host_srv_count","dst_host_same_srv_rate",
+"dst_host_diff_srv_rate","dst_host_same_src_port_rate",
+"dst_host_srv_diff_host_rate","dst_host_serror_rate","dst_host_srv_serror_rate",
+"dst_host_rerror_rate","dst_host_srv_rerror_rate","attack", "last_flag"]
+
+train.columns=columns
+test.columns=columns
+
+train.head()
+
+test.head()
+
+
+train.describe().T
+
+test.describe().T
+
+train['attack'].value_counts()
+
+test['attack'].value_counts()
+
+Mutinomial Classification
+In attack_class normal means 0, DOS means 1, PROBE means 2, R2L means 3 and U2R means 4.
+
+train['attack_class']=np.where(train.attack=='normal',0,np.where((train.attack=='back') | (train.attack=='land') | (train.attack=='pod') | (train.attack=='neptune') | 
+         (train.attack=='smurf') | (train.attack=='teardrop') | (train.attack=='apache2') | (train.attack=='udpstorm') | 
+         (train.attack=='processtable') | (train.attack=='worm') | (train.attack=='mailbomb'),1,np.where((train.attack=='satan') | (train.attack=='ipsweep') | (train.attack=='nmap') | (train.attack=='portsweep') | 
+          (train.attack=='mscan') | (train.attack=='saint'),2,np.where((train.attack=='guess_passwd') | (train.attack=='ftp_write') | (train.attack=='imap') | (train.attack=='phf') | 
+          (train.attack=='multihop') | (train.attack=='warezmaster') | (train.attack=='warezclient') | (train.attack=='spy') | 
+          (train.attack=='xlock') | (train.attack=='xsnoop') | (train.attack=='snmpguess') | (train.attack=='snmpgetattack') | 
+          (train.attack=='httptunnel') | (train.attack=='sendmail') | (train.attack=='named'),3,4))))
+
+test['attack_class']=np.where(test.attack=='normal',0,np.where((test.attack=='back') | (test.attack=='land') | (test.attack=='pod') | (test.attack=='neptune') | 
+         (test.attack=='smurf') | (test.attack=='teardrop') | (test.attack=='apache2') | (test.attack=='udpstorm') | 
+         (test.attack=='processtable') | (test.attack=='worm') | (test.attack=='mailbomb'),1,np.where((test.attack=='satan') | (test.attack=='ipsweep') | (test.attack=='nmap') | (test.attack=='portsweep') | 
+          (test.attack=='mscan') | (test.attack=='saint'),2,np.where((test.attack=='guess_passwd') | (test.attack=='ftp_write') | (test.attack=='imap') | (test.attack=='phf') | 
+          (test.attack=='multihop') | (test.attack=='warezmaster') | (test.attack=='warezclient') | (test.attack=='spy') | 
+          (test.attack=='xlock') | (test.attack=='xsnoop') | (test.attack=='snmpguess') | (test.attack=='snmpgetattack') | 
+          (test.attack=='httptunnel') | (test.attack=='sendmail') | (test.attack=='named'),3,4))))
+
+Binomial Classification
+In attack_class normal means 0 and attack means 1.
+
+train['attack_class']=np.where(train.attack=='normal',0,1)
+
+train.attack_class.value_counts()
+
+test['attack_class']=np.where(test.attack=='normal',0,1)
+
+test.attack_class.value_counts()
+
+# **Basic Exploratory Analysis**
+
+# Protocol type distribution
+plt.figure(figsize=(9,8))
+sns.countplot(x="protocol_type", data=train)
+plt.show()
+
+# Protocol type distribution
+plt.figure(figsize=(10,15))
+sns.countplot(y="service", data=train)
+plt.show()
+
+# Protocol type distribution
+plt.figure(figsize=(8,8))
+sns.countplot(x="flag", data=train)
+plt.show()
+
+# Protocol type distribution
+plt.figure(figsize=(6,6))
+sns.countplot(y="attack", data=train)
+plt.show()
+
+# Protocol type distribution
+plt.figure(figsize=(6,6))
+sns.countplot(x="attack_class", data=train)
+plt.show()
+
+flag_count = train[['flag', 'attack_class']].groupby(['flag', 'attack_class']).size()
+flag_count_percent = flag_count.groupby(level=[0]).apply(lambda x: x / x.sum()).reset_index()
+flag_count_percent.columns = ['flag', 'attack_class', 'percent']
+sns.factorplot(y="flag",
+            x = 'percent',
+            hue="attack_class",
+            data = flag_count_percent,
+            size=6,
+            kind="bar",
+            palette="muted")
+
+type_count = train[['protocol_type', 'attack_class']].groupby(['protocol_type', 'attack_class']).size()
+type_count_percent = type_count.groupby(level=[0]).apply(lambda x: x / x.sum()).reset_index()
+type_count_percent.columns = ['protocol_type', 'attack_class', 'percent']
+sns.factorplot(x="protocol_type",
+            y = 'percent',
+            hue="attack_class",
+            data = type_count_percent,
+            size=6,
+            kind="bar",
+            palette="muted")
+
+identifying relationships (between Y & numerical independent variables by comparing means)
+
+train.groupby('attack_class').mean().T
+
+
+# 13. Lets check corrleation between Variables
+corrmat = train.corr()
+corrmat
+
+Data Audit
+
+tr_num_var=train.select_dtypes(['int64','float64','int32','float32'])
+ts_num_var=test.select_dtypes(['int64','float64','int32','float32'])
+
+tr_cat_var = train.select_dtypes('object')
+ts_cat_var=test.select_dtypes('object')
+
+# Create Data audit Report for continuous variables
+def continuous_var_summary(x):
+    return pd.Series([x.count(), x.isnull().sum(), x.sum(), x.mean(), x.median(),  
+                      x.std(), x.var(), x.min(), x.quantile(0.01), x.quantile(0.05),
+                          x.quantile(0.10),x.quantile(0.25),x.quantile(0.50),x.quantile(0.75), 
+                              x.quantile(0.90),x.quantile(0.95), x.quantile(0.99),x.max()], 
+                  index = ['N', 'NMISS', 'SUM', 'MEAN','MEDIAN', 'STD', 'VAR', 'MIN', 'P1', 
+                               'P5' ,'P10' ,'P25' ,'P50' ,'P75' ,'P90' ,'P95' ,'P99' ,'MAX'])
+
+# Create Data audit Report for categorical variables
+def categorical_var_summary(x):
+    Mode = x.value_counts().sort_values(ascending = False)[0:1].reset_index()
+    return pd.Series([x.count(), x.isnull().sum(), Mode.iloc[0, 0], Mode.iloc[0, 1], 
+                          round(Mode.iloc[0, 1] * 100/x.count(), 2)], 
+                  index = ['N', 'NMISS', 'MODE', 'FREQ', 'PERCENT'])
+
+# An utility function to create dummy variable
+def create_dummies(df, colname):
+    col_dummies = pd.get_dummies(df[colname], prefix = colname, drop_first = True)
+    df = pd.concat([df, col_dummies], axis = 1)
+    df.drop(colname, axis = 1, inplace = True )
+    return df
+
+tr_num_var.apply(continuous_var_summary).T.round(2)
+ts_num_var.apply(continuous_var_summary).T.round(2)
+
+# alternate of .describe() for categorical variables
+tr_cat_var.apply(categorical_var_summary).T
+ts_cat_var.apply(categorical_var_summary).T
+
+tr_num_var.apply(continuous_var_summary).T.round(2)
+ts_num_var.apply(continuous_var_summary).T.round(2)
+
+# get the useful categorical variables
+tr_cat_var = train[['protocol_type', 'service','flag','attack']]
+
+# for c_feature in categorical_features
+for c_feature in ['protocol_type', 'service','flag','attack']:
+    tr_cat_var[c_feature] = tr_cat_var[c_feature].astype('category')
+    tr_cat_var = create_dummies(tr_cat_var, c_feature)
+
+# get the useful categorical variables
+ts_cat_var = test[['protocol_type', 'service','flag','attack']]
+
+# for c_feature in categorical_features
+for c_feature in ['protocol_type', 'service','flag','attack']:
+    ts_cat_var[c_feature] = ts_cat_var[c_feature].astype('category')
+    ts_cat_var = create_dummies(ts_cat_var, c_feature)
+
+
+Final datasets
+
+train_new= pd.concat([tr_num_var, tr_cat_var], axis = 1)
+test_new = pd.concat([ts_num_var, ts_cat_var], axis = 1)
+
+corrm=train_new.corr()
+corrm
+
+plt.figure(figsize = (10, 8))
+sns.heatmap(corrm)
+
+train_new.drop(columns=['land','wrong_fragment','urgent','num_failed_logins',"root_shell","su_attempted","num_root",
+                        "num_file_creations","num_shells","num_access_files","num_outbound_cmds","is_host_login","is_guest_login",
+                        'dst_host_rerror_rate','dst_host_serror_rate','dst_host_srv_rerror_rate','dst_host_srv_serror_rate',
+                        'num_root','num_outbound_cmds','srv_rerror_rate','srv_serror_rate'],inplace=True)
+
+plt.figure(figsize = (10, 8))
+sns.heatmap(train_new.corr())
+
+ Recursive Feature Elimination (RFE)
+
+import warnings
+warnings.filterwarnings("ignore")
+from sklearn import datasets
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LogisticRegression
+X = train_new[train_new.columns.difference(['attack_class'])]
+logreg = LogisticRegression(solver='lbfgs',multi_class='auto')
+rfe = RFE(logreg, 15)
+rfe = rfe.fit(X, train_new['attack_class'] )
+print(rfe.support_)
+print(rfe.ranking_)
+
+# capturing the important variables
+RFE_features=X.columns[rfe.get_support()]
+RFE_features
+
+all_columns = "+".join(train_new.columns.difference( ['attack_class'] ))
+
+print(all_columns)
+
+Variance Inflation Factor assessment
+
+# import the packages for vif
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from patsy import dmatrices
+# run the dmatrices
+a, b = dmatrices(formula_like='''attack_class ~ count+diff_srv_rate+dst_bytes+dst_host_count+
+                 dst_host_diff_srv_rate+dst_host_same_src_port_rate+
+                 dst_host_srv_diff_host_rate+duration+
+                 hot+last_flag+logged_in+num_compromised+
+                srv_count+srv_diff_host_rate''', data =train_new, return_type = 'dataframe')
+
+# get the VIF
+vif = pd.DataFrame()
+vif["VIF Factor"] = [variance_inflation_factor(b.values, i) for i in range(b.shape[1])]
+vif["features"] = b.columns
+
+vif
+
+Final Variables
+
+cols=['count','diff_srv_rate','dst_bytes','dst_host_count',
+                 'dst_host_diff_srv_rate','dst_host_same_src_port_rate',
+                 'dst_host_srv_diff_host_rate','duration',
+                 'hot','last_flag','logged_in','num_compromised',
+                 'srv_count','srv_diff_host_rate']
+
+Model Building
+
+train_X=train_new[cols]
+train_y=train_new['attack_class']
+test_X=test_new[cols]
+test_y=test_new['attack_class']
+
+Logistic Regression
+
+# Building Models
+from sklearn.linear_model import LogisticRegression
+logreg = LogisticRegression(random_state=0,solver='lbfgs',multi_class='multinomial')
+logreg.fit( train_X, train_y)
+logreg.predict(train_X)   #by default, it use cut-off as 0.5
+
+list( zip( cols, logreg.coef_[0] ) )
+
+
+logreg.intercept_
+
+
+logreg.score(train_X,train_y)
+
+Decision Trees
+
+
+train_X.shape
+
+param_grid = {'max_depth': np.arange(2, 12),
+             'max_features': np.arange(10,15)}
+
+train_y.shape
+
+from sklearn.model_selection import GridSearchCV
+from sklearn.tree import DecisionTreeClassifier, export_graphviz, export
+tree = GridSearchCV(DecisionTreeClassifier(), param_grid, cv = 10,verbose=1,n_jobs=-1)
+tree.fit( train_X, train_y )
+
+
+tree.best_score_
+
+tree.best_estimator_
+tree.best_params_
+
+train_pred = tree.predict(train_X)
+
+print(metrics.classification_report(train_y, train_pred))
+
+test_pred = tree.predict(test_X)
+print(metrics.classification_report(test_y, test_pred))
+
+clf_tree = DecisionTreeClassifier( max_depth = 11, max_features=13)
+clf_tree.fit( train_X, train_y )
+
+train_X.columns
+clf_tree.feature_importances_
+
+list(zip(train_X.columns,clf_tree.feature_importances_ ))
+
+
+
+tree_test_pred = pd.DataFrame( { 'actual':  test_y,
+                            'predicted': clf_tree.predict( test_X ) } )
+
+tree_test_pred.sample( n = 10 )
+
+metrics.accuracy_score( tree_test_pred.actual, tree_test_pred.predicted )
+
+tree_cm = metrics.confusion_matrix( tree_test_pred.predicted,
+                                 tree_test_pred.actual,
+                                 [1,0] )
+sns.heatmap(tree_cm, annot=True,
+         fmt='.2f',
+         xticklabels = ["Yes", "No"] , yticklabels = ["Yes", "No"] )
+
+plt.ylabel('True label')
+plt.xlabel('Predicted label')
+
+metrics.roc_auc_score( tree_test_pred.actual, tree_test_pred.predicted )
+
+Random Forest
+
+from sklearn.ensemble import RandomForestClassifier
+pargrid_rf = {'n_estimators': [50,60,70,80,90,100],
+                  'max_features': [2,3,4,5,6,7]}
+
+from sklearn.model_selection import GridSearchCV
+gscv_rf = GridSearchCV(estimator=RandomForestClassifier(), 
+                        param_grid=pargrid_rf, 
+                        cv=10,
+                        verbose=True, n_jobs=-1)
+
+gscv_results = gscv_rf.fit(train_X, train_y)
+
+gscv_results.best_params_
+
+gscv_rf.best_score_
+
+radm_clf = RandomForestClassifier(oob_score=True,n_estimators=80, max_features=5, n_jobs=-1)
+radm_clf.fit( train_X, train_y )
+
+radm_test_pred = pd.DataFrame( { 'actual':  test_y,
+                            'predicted': radm_clf.predict( test_X ) } )
+
+print(metrics.accuracy_score( radm_test_pred.actual, radm_test_pred.predicted ))
+#print(metrics.roc_auc_score( radm_test_pred.actual, radm_test_pred.predicted ))
+
+tree_cm = metrics.confusion_matrix( radm_test_pred.predicted,
+                                 radm_test_pred.actual,
+                                 [1,0] )
+sns.heatmap(tree_cm, annot=True,
+         fmt='.2f',
+         xticklabels = ["Yes", "No"] , yticklabels = ["Yes", "No"] )
+
+plt.ylabel('True label')
+plt.xlabel('Predicted label')
+
+Neural Network Model
+
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+# Fit only to the training data
+scaler.fit(train_X)
+
+# Now apply the transformations to the data:
+train_X = scaler.transform(train_X)
+test_X = scaler.transform(test_X)
+
+from sklearn.neural_network import MLPClassifier
+mlp = MLPClassifier(hidden_layer_sizes=(30,30,30))
+mlp.fit(train_X, train_y)
+
+predictions = mlp.predict(test_X)
+from sklearn.metrics import classification_report,confusion_matrix
+print(confusion_matrix(test_y,predictions))
+print(classification_report(test_y,predictions))
+
+len(mlp.coefs_)
+len(mlp.coefs_[0])
+len(mlp.intercepts_[0])
+
+mlp.coefs_
+
+mlp.score(train_X,train_y)
+
+Support Vector Machine (SVM)
+
+from sklearn.svm import LinearSVC
+svm_clf = LinearSVC(random_state=0, tol=1e-5)
+svm_clf.fit(train_X,train_y)
+
+print(svm_clf.coef_)
+print(svm_clf.intercept_)
+print(svm_clf.predict(train_X))
+
+from sklearn.svm import SVC
+from sklearn.pipeline import make_pipeline
+
+model = SVC(kernel='rbf', class_weight='balanced',gamma='scale')
+
+model.fit(train_X,train_y)
+
+from sklearn.model_selection import GridSearchCV
+param_grid = {'C': [1, 10],
+              'gamma': [0.0001, 0.001]}
+grid = GridSearchCV(model, param_grid)
+
+grid.fit(train_X,train_y)
+
+print(grid.best_params_)
+
+model = grid.best_estimator_
+yfit = model.predict(test_X)
+
+
+from sklearn.metrics import classification_report
+print(classification_report(test_y, yfit))
+
+
+from sklearn.metrics import confusion_matrix
+mat = confusion_matrix(test_y, yfit)
+sns.heatmap(mat.T, square=True, annot=True, fmt='d', cbar=False)
+plt.xlabel('true label')
+plt.ylabel('predicted label')
